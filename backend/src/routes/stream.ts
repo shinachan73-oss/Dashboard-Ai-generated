@@ -29,7 +29,6 @@ router.get("/:id/stream", (req, res) => {
     send("component", event)
   })
     .then(() => {
-      updateStatus(config.id, "disconnected")
       send("done", {})
       res.end()
     })

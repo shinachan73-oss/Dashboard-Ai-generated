@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { v4 as uuidv4 } from "uuid"
-import { saveConfig, listConfigs, getConfig, deleteConfig } from "../db/mcpConfigs"
+import { saveConfig, listConfigs, getConfig, deleteConfig, updateStatus } from "../db/mcpConfigs"
 import { MCPConfig, ComponentEvent, ChatMessage } from "../types"
 import { createMCPClient, callMCPTool } from "../agent/mcpClient"
 import { runChatAgent } from "../agent/runner"
@@ -64,6 +64,7 @@ router.post("/:id/sync", async (req, res) => {
 
   let mcpClient: any = null
   try {
+    updateStatus(config.id, "connected")
     mcpClient = await createMCPClient(config)
     
     // 1. Fetch all data in parallel (Direct & Fast)
@@ -124,6 +125,7 @@ router.post("/:id/chat", async (req, res) => {
   const { messages, dashboardContext } = req.body as { messages: ChatMessage[], dashboardContext: string }
   
   try {
+    updateStatus(config.id, "connected")
     const response = await runChatAgent(config, messages, dashboardContext)
     res.json({ content: response })
   } catch (error: any) {
