@@ -6,9 +6,18 @@ import {
   type ContentBlock as BedrockContentBlock
 } from "@aws-sdk/client-bedrock-runtime"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import OpenAI from "openai"
 import { MCPConfig, ComponentEvent } from "../types"
 import { DASHBOARD_TOOLS, isDashboardTool } from "./dashboardTools"
 import { createMCPClient, listMCPTools, callMCPTool, buildMCPTools } from "./mcpClient"
+
+const USE_OPENAI = process.env.USE_OPENAI === "true"
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o"
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL
+const openai = new OpenAI({
+  baseURL: OPENAI_BASE_URL,
+  apiKey: process.env.OPENAI_API_KEY || "dummy",
+})
 
 const USE_BEDROCK = process.env.USE_BEDROCK === "true"
 const BEDROCK_REGION = process.env.AWS_REGION || "us-east-1"
@@ -16,6 +25,19 @@ const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID || "us.anthropic.claude-sonne
 const ANTHROPIC_MODEL = "claude-sonnet-4-6"
 
 const anthropic = new Anthropic()
+
+// ── OpenAI helpers ───────────────────────────────────────────────────────────
+
+function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return tools.map(t => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema as Record<string, unknown>
+    }
+  }))
+}
 
 // ── Bedrock helpers ──────────────────────────────────────────────────────────
 
@@ -115,6 +137,65 @@ async function runWithAnthropic(
   }
 }
 
+async function runWithOpenAI(
+  config: MCPConfig,
+  mcpClient: Client,
+  allTools: Anthropic.Tool[],
+  onComponent: (event: ComponentEvent) => void
+): Promise<void> {
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: `You are connected to "${config.name}". Fetch and summarize the available data and render it as a dashboard using the render_* tools. Call render tools as you gather data — do not wait until the end.` },
+    { role: "user", content: "Build a dashboard from the available data." }
+  ]
+  const openAITools = toOpenAITools(allTools)
+
+  while (true) {
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages,
+      tools: openAITools.length > 0 ? openAITools : undefined,
+    })
+
+    const choice = response.choices[0]
+    const message = choice.message
+    messages.push(message)
+
+    if (choice.finish_reason === "stop" || choice.finish_reason === "length") break
+    if (!message.tool_calls || message.tool_calls.length === 0) break
+
+    for (const toolCall of message.tool_calls) {
+      if (toolCall.type !== "function") continue
+      
+      const toolName = toolCall.function.name
+      let args: Record<string, unknown> = {}
+      try {
+        args = JSON.parse(toolCall.function.arguments)
+      } catch (e) {
+        console.error("Failed to parse tool arguments", e)
+      }
+
+      let resultContent: string
+      if (isDashboardTool(toolName)) {
+        onComponent({ tool: toolName, props: args })
+        resultContent = "Rendered successfully."
+      } else {
+        try {
+          resultContent = await callMCPTool(mcpClient, toolName, args)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (e: any) {
+          resultContent = `Error calling tool: ${e.message}`
+        }
+      }
+
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        content: resultContent
+      })
+    }
+  }
+}
+
 async function runWithBedrock(
   config: MCPConfig,
   mcpClient: Client,
@@ -168,7 +249,9 @@ export async function runDashboardAgent(
     const mcpToolDefs = await listMCPTools(mcpClient)
     const allTools = [...buildMCPTools(mcpToolDefs), ...DASHBOARD_TOOLS]
 
-    if (USE_BEDROCK) {
+    if (USE_OPENAI) {
+      await runWithOpenAI(config, mcpClient, allTools, onComponent)
+    } else if (USE_BEDROCK) {
       await runWithBedrock(config, mcpClient, allTools, onComponent)
     } else {
       await runWithAnthropic(config, mcpClient, allTools, onComponent)

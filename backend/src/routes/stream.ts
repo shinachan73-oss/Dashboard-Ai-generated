@@ -34,6 +34,7 @@ router.get("/:id/stream", (req, res) => {
       res.end()
     })
     .catch((err: Error) => {
+      console.error("Agent Error:", err)
       updateStatus(config.id, "error")
       send("error", { message: err.message })
       res.end()
