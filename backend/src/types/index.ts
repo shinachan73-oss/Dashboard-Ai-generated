@@ -10,4 +10,13 @@ export interface MCPConfig {
 export interface ComponentEvent {
   tool: string
   props: Record<string, unknown>
+  dataContext?: {
+    toolName: string
+    arguments: Record<string, unknown>
+  }
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
 }

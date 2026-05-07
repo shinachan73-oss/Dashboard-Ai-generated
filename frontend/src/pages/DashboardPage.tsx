@@ -3,16 +3,18 @@ import { MCPConfig } from "../types"
 import MCPConfigForm from "../components/mcp/MCPConfigForm"
 import MCPStatusList from "../components/mcp/MCPStatusList"
 import Dashboard from "../components/dashboard/registry"
+import DashboardChat from "../components/dashboard/DashboardChat"
 import { useDashboard } from "../hooks/useDashboard"
 import { Button } from "../components/ui/button"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Zap, MessageSquare } from "lucide-react"
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001"
 
 export default function DashboardPage() {
   const [configs, setConfigs] = useState<MCPConfig[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const { components, status, refresh } = useDashboard(selectedId)
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const { components, status, isSyncing, refresh, sync } = useDashboard(selectedId)
 
   const loadConfigs = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/mcp`)
@@ -67,16 +69,38 @@ export default function DashboardPage() {
                 </h1>
                 <p className="text-sm text-muted-foreground">Generated AI Insights</p>
               </div>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="gap-2"
-                onClick={refresh}
-                disabled={status === "streaming"}
-              >
-                <RefreshCw className={`h-4 w-4 ${status === "streaming" ? "animate-spin" : ""}`} />
-                {status === "streaming" ? "Generating..." : "Refresh Insight"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="gap-2 text-primary hover:text-primary hover:bg-primary/10"
+                  onClick={sync}
+                  disabled={status === "streaming" || isSyncing}
+                >
+                  <Zap className={`h-4 w-4 ${isSyncing ? "animate-pulse fill-primary" : ""}`} />
+                  {isSyncing ? "Syncing Data..." : "Sync Data"}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="gap-2"
+                  onClick={() => setIsChatOpen(!isChatOpen)}
+                  disabled={!selectedId}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Chat
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="gap-2"
+                  onClick={refresh}
+                  disabled={status === "streaming" || isSyncing}
+                >
+                  <RefreshCw className={`h-4 w-4 ${status === "streaming" ? "animate-spin" : ""}`} />
+                  {status === "streaming" ? "Generating..." : "Refresh Layout"}
+                </Button>
+              </div>
             </div>
 
             <div className="flex-1">
@@ -94,6 +118,15 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {selectedId && (
+        <DashboardChat 
+          mcpId={selectedId} 
+          components={components} 
+          isOpen={isChatOpen} 
+          onClose={() => setIsChatOpen(false)} 
+        />
+      )}
     </div>
   )
 }

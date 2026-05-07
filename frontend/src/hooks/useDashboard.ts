@@ -3,12 +3,12 @@ import { ComponentEvent, StreamStatus } from "../types"
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001"
 
-// Persistent cache outside the hook to survive between mcpId changes
 const dashboardCache: Record<string, ComponentEvent[]> = {}
 
 export function useDashboard(mcpId: string | null) {
   const [components, setComponents] = useState<ComponentEvent[]>(mcpId ? (dashboardCache[mcpId] || []) : [])
   const [status, setStatus] = useState<StreamStatus>(mcpId && dashboardCache[mcpId] ? "done" : "idle")
+  const [isSyncing, setIsSyncing] = useState(false)
   const esRef = useRef<EventSource | null>(null)
 
   const startStream = useCallback((id: string) => {
@@ -47,7 +47,6 @@ export function useDashboard(mcpId: string | null) {
       return
     }
 
-    // If we have cached data, just use it and don't restart the stream
     if (dashboardCache[mcpId]) {
       setComponents(dashboardCache[mcpId])
       setStatus("done")
@@ -67,5 +66,28 @@ export function useDashboard(mcpId: string | null) {
     }
   }, [mcpId, startStream])
 
-  return { components, status, refresh }
+  const sync = useCallback(async () => {
+    if (!mcpId || components.length === 0) return
+
+    setIsSyncing(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/mcp/${mcpId}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ components })
+      })
+      
+      if (!res.ok) throw new Error("Sync failed")
+      
+      const updatedComponents = await res.json()
+      setComponents(updatedComponents)
+      dashboardCache[mcpId] = updatedComponents
+    } catch (e) {
+      console.error("Sync error:", e)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [mcpId, components])
+
+  return { components, status, isSyncing, refresh, sync }
 }
